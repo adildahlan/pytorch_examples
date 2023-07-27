@@ -1,3 +1,4 @@
+import datetime
 import argparse
 import os
 import random
@@ -106,12 +107,15 @@ def main():
 
     if torch.cuda.is_available():
         ngpus_per_node = torch.cuda.device_count()
+        print("Number of GPUs: {}".format(ngpus_per_node))
     else:
         ngpus_per_node = 1
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
+        print("Before: world size: {}".format(args.world_size))
         args.world_size = ngpus_per_node * args.world_size
+        print("After: world size: {}".format(args.world_size))
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
@@ -134,6 +138,8 @@ def main_worker(gpu, ngpus_per_node, args):
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
             args.rank = args.rank * ngpus_per_node + gpu
+        # print("| distributed init (rank {}): {}, gpu {}".format(
+        #       args.rank, args.dist_url, args.gpu), flush=True)
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
     # create model
@@ -270,12 +276,18 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
 
+    print("Start training...", flush=True)
+    
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
+        epoch_start_time = time.time()
         train(train_loader, model, criterion, optimizer, epoch, device, args)
+        epoch_total_time = time.time() - epoch_start_time
+        total_time_str = str(datetime.timedelta(seconds=int(epoch_total_time)))
+        print("Epoch {} training time: {}\n".format(epoch, total_time_str), flush=True)
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, args)
@@ -478,12 +490,12 @@ class ProgressMeter(object):
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
+        print('\t'.join(entries), flush=True)
         
     def display_summary(self):
         entries = [" *"]
         entries += [meter.summary() for meter in self.meters]
-        print(' '.join(entries))
+        print(' '.join(entries), flush=True)
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
